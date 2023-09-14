@@ -13,7 +13,7 @@ from talktalk.authentication import ChatappAuthenticate
 from rest_framework.permissions import AllowAny,IsAuthenticated
 from chatapp.models import User
 from django.db.models import Q,Value
-
+import json,math,logging
 
 @api_view(['post'])
 @permission_classes([AllowAny])
@@ -26,7 +26,7 @@ def register(request):
         return response_generator(status.HTTP_200_OK,'Successfully Registered')
         
     except Exception as e:
-        print('Exceptions Occured is',e)
+        logging.exception('Exceptions Occured is {}'.format(e))
         return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
 
 
@@ -60,9 +60,9 @@ def login(request):
             data={'access_key':str(token)}
             return response_generator(status.HTTP_200_OK,data)
         
-
     except Exception as e:
-        print('Exceptions Occured is',e)
+        logging.exception('Exceptions Occured is {}'.format(e))
+
         return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
     
 
@@ -76,9 +76,8 @@ def logout(request):
                 token_obj.delete()
         return response_generator(status.HTTP_200_OK,'successfully logged out..') 
 
-
     except Exception as e:
-            print('Exceptions Occured is',e)
+            logging.exception('Exceptions Occured is {}'.format(e))
             return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
     
 
@@ -106,11 +105,11 @@ class OnlineUsers(generics.ListAPIView):
             '''
 
             q=Q(is_online=True)&Q(token_expiry__gte=timezone.now())
-            final_data=User.objects.filter(q).annotate(status=Value('Online')).values('username','status')
+            final_data=User.objects.filter(q).annotate(status=Value('Online')).values('id','username','status')
             return response_generator(status.HTTP_200_OK,final_data)
 
         except Exception as e:
-            print('Exceptions Occured is',e)
+            logging.exception('Exceptions Occured is {}'.format(e))
             return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
     
 
@@ -129,8 +128,67 @@ def startchat(request):
             return response_generator(status.HTTP_400_BAD_REQUEST,'User not "Available Online" or "exists"')
 
     except Exception as e:
-            print('Exceptions Occured is',e)
-            return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
+        logging.exception('Exceptions Occured is {}'.format(e))
+        return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
     
 
 
+class UserS:
+
+    def __init__(self):
+        #considering the location of json file is static and known.
+        self.final_user_data=dict()
+        with open('talktalk/users.json','r') as f:
+            data=json.load(f)
+
+        for usr_data in data['users']:
+            self.final_user_data[usr_data['id']]={}
+            self.final_user_data[usr_data['id']]['user_id']=usr_data['id']
+            self.final_user_data[usr_data['id']]['age']=usr_data['age']
+            self.final_user_data[usr_data['id']]['name']=usr_data['name']
+            self.final_user_data[usr_data['id']]['interests']=usr_data['interests']
+
+users=UserS()
+
+
+#currently calclating matching score based on only interests.
+def similarity_check(user1,user2):
+    try:
+        numerator=0
+        for interest in user1.get('interests'):
+            numerator+=int(user1['interests'].get(interest,0))*int(user2['interests'].get(interest,0))
+        mod_user1=math.sqrt(sum(x**2 for x in user1.get('interests',0).values()))
+        mod_user2=math.sqrt(sum(x**2 for x in user1.get('interests',0).values()))
+        denominator=(mod_user1*mod_user2)
+        score=round((numerator/denominator),8)
+        # logging.exception(score)
+        return score
+    except Exception as e:
+        logging.exception('Exceptions Occured is {}'.format(e))
+
+
+@api_view(['get'])
+def friendrecommender(request,pk):
+    try:
+        similarity_score=[]
+        users_data=users.final_user_data
+        try:
+            current_user=users_data[pk]
+        # if not current_user:
+        except:
+            return response_generator(status.HTTP_400_BAD_REQUEST,'Invalid User id Given')
+        for user_id in users_data:
+            if user_id!=pk:
+                cos_score=similarity_check(current_user,users_data[user_id])
+                similarity_score.append((cos_score,users_data[user_id]['user_id']))
+
+        similarity_score.sort(key=lambda x:x[0])
+        top_5_frnds=[]
+        for score_data in similarity_score[-6:]:
+            top_5_frnds.append(users_data[score_data[1]])
+        # top_5_frnds.append(users_data[pk])
+        return response_generator(status.HTTP_200_OK,top_5_frnds)
+    
+    except Exception as e:
+        logging.exception('Exceptions Occured is {}'.format(e)) 
+        return response_generator(status.HTTP_500_INTERNAL_SERVER_ERROR,'Internal Server Error')
