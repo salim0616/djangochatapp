@@ -20,6 +20,7 @@ Assuming python already Installed.
   linux/Mac:source env_name/bin/activate
 
   cd talktalk
+  python manage.py migrate
   python manage.py runserver 
 
 ```
